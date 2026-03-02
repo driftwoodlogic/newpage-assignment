@@ -34,6 +34,8 @@ uv run python scripts/ingest_chunks.py \
 
 uv run uvicorn app.main:app --reload --port 8000
 
+curl -s -X POST http://localhost:8000/query -H "Content-Type: application/json" -d '{"query": "What are the requirements for HEPA filter integrity testing in Grade A environments?"}' | jq
+
 uv run python scripts/build_promptfoo_tests.py \
     --questions eval/questions_100.jsonl \
     --out eval/promptfoo_tests.json
@@ -95,14 +97,33 @@ Above is a good foundation for scalability, would want to add several features:
 ... although given regulatory area for this, customers may want to run this on prem so they can input their own data freely
 Or use models hosted on bedrock is probably the easiest
 
+## RAG/LLM approach and decisions
+ - **Embedding**: Used a small embedding model given the small dataset size and low complexity - `text-embedding-3-small`; chunks stored in pgvector - a performant vector store which allows us to use a single PostGres instance 
+ - **Chunking**: paragraph-aware chunking with overlap to ensure sections aren't missed. Section headings and page numbers are prepended to each chunk to improve the retrieval signal
+ - **Query expansion**: domain acronyms (CCS, GMP, HEPA, etc.) expanded to full regulatory terms before embedding as the LLM with otherwise not pick these up as a signal
+ - **Hybrid rescoring**: vector score combined with word term overlap and a boost if headings match - using pure-vector would often miss extraction of regulatory terminology
+ - **LLM rerank**: top-K candidates re-scored by the LLM for relevance before generation, doing this lowers the amount of context we need to give to the LLM, improving accuracy
+ - **Generation**: Used a very small model: `gpt-5-nano` for generation with temperature 0 to attempt to get repeatable results. In production this could use a larger model to improve results given a larger range of docs would be used. Otherwise, good results have been shown by this model so a local model using Ollama would make sense to be privacy preserving
+ - **System Prompt**: Use a grounded system prompt telling the model to answer only from context, cite by `[n]`, say "don't know" if not found
+ - **Synthetic eval set**: 100 questions generated from the range of chunks used as the ground-truth set for retrieval precision/recall and Promptfoo regression checks
+
+## Key Technical Decisions
+Overall aimed for observability and eval-driven development as key factors for this given the requirement for high accuracy when deployed. This also allows us to see where the pipeline is failing or underperforming and fix that specific problem before deployment. Observability is key here and would be even more key if adding in agentic steps
+Single postgres instance for everything simplifies the infra and deployment significantly
+The LLM client is configurable meaning we can swap it for other providers easily, or use AWS Bedrock or local models for privacy
+Single centralised config ensures that all tunable hyperparameters are available
+Two tier evaluation means that non-technical users can use promptfoo to understand and broadly understand and detect regressions, and the development team can use the detailed eval to drill into specific failure cases
+Pydantic is used to be type safe everywhere
+
 # Engineering standards
-## Followed
+## Followed:
  - Observability
  - Config management
  - Type hints
  - Eval-driven development
  - Dependency management
-Skipped:
+ 
+## Skipped:
  - Tests
  - CICD
  - Linting
