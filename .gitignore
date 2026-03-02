@@ -1,0 +1,6 @@
+.env
+*.ndjson
+*.jsonl
+!eval/*
+.idea
+*.pyc

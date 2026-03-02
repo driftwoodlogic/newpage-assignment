@@ -1,2 +1,6 @@
 # rag-eval-observability
-Eval and observability pipeline for a RAG app
+
+Documentation lives in `docs/`:
+- `docs/README.md`
+- `docs/runbook.md`
+- `docs/architecture.md`

@@ -1,0 +1,27 @@
+[project]
+name = "rag-eval-observability"
+version = "0.1.0"
+description = "Eval and observability pipeline for a RAG app"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+  "openai>=1.30",
+  "psycopg[binary]>=3.1",
+  "psycopg-pool>=3.2",
+  "pgvector>=0.2",
+  "pydantic-settings>=2.2",
+  "opentelemetry-api>=1.25",
+  "opentelemetry-sdk>=1.25",
+  "opentelemetry-exporter-otlp>=1.25",
+  "httpx>=0.27",
+  "ragas>=0.1.9",
+  "pandas>=2.1",
+  "numpy>=1.26",
+  "scikit-learn>=1.4",
+  "datasets>=2.18",
+  "tqdm>=4.66",
+]
+
+[tool.uv]
+# uv provides a repeatable runner and dependency sync.

@@ -1,0 +1,35 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: rag_eval
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"  # UI + OTLP HTTP
+      - "4317:4317"  # OTLP gRPC
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/rag_eval
+      PHOENIX_OTLP_ENDPOINT: http://phoenix:6006/v1/traces
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - phoenix
+
+volumes:
+  pgdata:

@@ -1,0 +1,16 @@
+description: rag-eval-observability
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: http
+    config:
+      url: "http://localhost:8000/query"
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        query: "{{question}}"
+      responseParser: "json.answer"
+
+tests: "eval/promptfoo_tests.json"
