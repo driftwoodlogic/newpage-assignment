@@ -1,13 +1,16 @@
-.PHONY: up down logs rebuild
+.PHONY: up down logs promptfoo-eval promptfoo-view
 
 up:
-	docker compose up --build -d
+	docker compose up -d db phoenix
 
 down:
 	docker compose down
 
 logs:
-	docker compose logs -f
+	docker compose logs -f db phoenix
 
-rebuild:
-	docker compose build --no-cache
+promptfoo-eval:
+	PROMPTFOO_CONFIG_DIR=.promptfoo promptfoo eval -c eval/promptfoo.yaml
+
+promptfoo-view:
+	PROMPTFOO_CONFIG_DIR=.promptfoo promptfoo view

@@ -40,21 +40,3 @@ CREATE TABLE IF NOT EXISTS query_logs (
   retrieved_chunk_ids TEXT[],
   reranked_chunk_ids TEXT[]
 );
-
-CREATE TABLE IF NOT EXISTS eval_runs (
-  run_id UUID PRIMARY KEY,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  git_sha TEXT,
-  model TEXT,
-  embed_model TEXT,
-  top_k INTEGER,
-  rerank_k INTEGER,
-  notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS eval_scores (
-  run_id UUID REFERENCES eval_runs(run_id),
-  question_id TEXT,
-  metrics JSONB,
-  PRIMARY KEY (run_id, question_id)
-);

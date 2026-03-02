@@ -4,3 +4,4 @@
 !eval/*
 .idea
 *.pyc
+.promptfoo/

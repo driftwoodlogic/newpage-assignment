@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Ingest people + chunks into Postgres with OpenAI embeddings."""
+"""Ingest UK aseptic cleanroom PDF corpus chunks into Postgres with OpenAI embeddings."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -21,6 +20,20 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from app.config import settings
+from app.pipeline_defaults import DEFAULT_INGEST_BATCH_SIZE
+
+
+STANDARD_CHUNK_KEYS = {
+    "chunk_id",
+    "source_id",
+    "name",
+    "url",
+    "section",
+    "type",
+    "text",
+    "field_name",
+    "fact_value",
+}
 
 
 def read_jsonl(path: Path) -> Iterable[dict[str, Any]]:
@@ -43,16 +56,23 @@ def connect():
     return conn
 
 
-def insert_documents(conn: psycopg.Connection, people_path: Path) -> int:
+def insert_documents(conn: psycopg.Connection, docs_path: Path) -> int:
     rows = []
-    for rec in read_jsonl(people_path):
-        source_id = str(rec.get("identifier", rec.get("name")))
-        rows.append((source_id, rec.get("name"), rec.get("url"), json.dumps(rec)))
+    for rec in read_jsonl(docs_path):
+        raw = rec.get("raw") if isinstance(rec.get("raw"), dict) else rec
+        rows.append(
+            (
+                str(rec.get("source_id")),
+                rec.get("name"),
+                rec.get("url"),
+                json.dumps(raw, ensure_ascii=False),
+            )
+        )
 
     with conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO documents (source_id, name, url, raw) VALUES (%s, %s, %s, %s::jsonb) "
-            "ON CONFLICT (source_id) DO NOTHING",
+            "ON CONFLICT (source_id) DO UPDATE SET name = EXCLUDED.name, url = EXCLUDED.url, raw = EXCLUDED.raw",
             rows,
         )
     conn.commit()
@@ -72,11 +92,12 @@ def insert_chunks(conn: psycopg.Connection, chunks_path: Path, batch_size: int) 
     inserted = 0
 
     for batch in chunked(chunks, batch_size):
-        texts = [c.get("text", "") for c in batch]
+        texts = [str(c.get("text", "")) for c in batch]
         embeddings = embed_texts(client, texts)
 
         rows = []
         for c, emb in zip(batch, embeddings):
+            metadata = {k: v for k, v in c.items() if k not in STANDARD_CHUNK_KEYS}
             rows.append(
                 (
                     c.get("chunk_id"),
@@ -84,12 +105,12 @@ def insert_chunks(conn: psycopg.Connection, chunks_path: Path, batch_size: int) 
                     c.get("name"),
                     c.get("url"),
                     c.get("section"),
-                    c.get("type"),
+                    c.get("type") or "pdf_chunk",
                     c.get("field_name"),
                     c.get("fact_value"),
                     c.get("text"),
                     Vector(emb),
-                    json.dumps({"source": "wikipedia-people"}),
+                    json.dumps(metadata, ensure_ascii=False),
                 )
             )
 
@@ -97,23 +118,26 @@ def insert_chunks(conn: psycopg.Connection, chunks_path: Path, batch_size: int) 
             cur.executemany(
                 "INSERT INTO chunks (chunk_id, source_id, name, url, section, type, field_name, fact_value, text, embedding, metadata) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb) "
-                "ON CONFLICT (chunk_id) DO NOTHING",
+                "ON CONFLICT (chunk_id) DO UPDATE SET "
+                "source_id = EXCLUDED.source_id, name = EXCLUDED.name, url = EXCLUDED.url, section = EXCLUDED.section, "
+                "type = EXCLUDED.type, field_name = EXCLUDED.field_name, fact_value = EXCLUDED.fact_value, "
+                "text = EXCLUDED.text, embedding = EXCLUDED.embedding, metadata = EXCLUDED.metadata",
                 rows,
             )
         conn.commit()
 
         inserted += len(rows)
-        print(f"Inserted {inserted}/{total} chunks")
+        print(f"Embedded + upserted {inserted}/{total} chunks")
         time.sleep(0.2)
 
     return inserted
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ingest people + chunks into Postgres")
-    parser.add_argument("--people", required=True)
-    parser.add_argument("--chunks", required=True)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser = argparse.ArgumentParser(description="Ingest UK aseptic cleanroom PDF docs + chunks into Postgres")
+    parser.add_argument("--documents", default="data/processed/documents.jsonl")
+    parser.add_argument("--chunks", default="data/processed/chunks.jsonl")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_INGEST_BATCH_SIZE)
     args = parser.parse_args()
 
     if not settings.openai_api_key:
@@ -121,11 +145,11 @@ def main() -> int:
 
     conn = connect()
     try:
-        doc_count = insert_documents(conn, Path(args.people))
-        print(f"Inserted documents: {doc_count}")
+        doc_count = insert_documents(conn, Path(args.documents))
+        print(f"Upserted documents: {doc_count}")
 
         chunk_count = insert_chunks(conn, Path(args.chunks), args.batch_size)
-        print(f"Inserted chunks: {chunk_count}")
+        print(f"Upserted chunks: {chunk_count}")
     finally:
         conn.close()
 

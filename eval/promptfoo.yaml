@@ -13,4 +13,4 @@ providers:
         query: "{{question}}"
       responseParser: "json.answer"
 
-tests: "eval/promptfoo_tests.json"
+tests: "promptfoo_tests.json"

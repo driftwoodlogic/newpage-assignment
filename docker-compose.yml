@@ -16,20 +16,5 @@ services:
       - "6006:6006"  # UI + OTLP HTTP
       - "4317:4317"  # OTLP gRPC
 
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/rag_eval
-      PHOENIX_OTLP_ENDPOINT: http://phoenix:6006/v1/traces
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
-      - phoenix
-
 volumes:
   pgdata:
