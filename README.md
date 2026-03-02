@@ -108,12 +108,12 @@ Or use models hosted on bedrock is probably the easiest
  - **Synthetic eval set**: 100 questions generated from the range of chunks used as the ground-truth set for retrieval precision/recall and Promptfoo regression checks
 
 ## Key Technical Decisions
-Overall aimed for observability and eval-driven development as key factors for this given the requirement for high accuracy when deployed. This also allows us to see where the pipeline is failing or underperforming and fix that specific problem before deployment. Observability is key here and would be even more key if adding in agentic steps
-Single postgres instance for everything simplifies the infra and deployment significantly
-The LLM client is configurable meaning we can swap it for other providers easily, or use AWS Bedrock or local models for privacy
-Single centralised config ensures that all tunable hyperparameters are available
-Two tier evaluation means that non-technical users can use promptfoo to understand and broadly understand and detect regressions, and the development team can use the detailed eval to drill into specific failure cases
-Pydantic is used to be type safe everywhere
+ - Overall aimed for observability and eval-driven development as key factors for this given the requirement for high accuracy when deployed. This also allows us to see where the pipeline is failing or underperforming and fix that specific problem before deployment. Observability is key here and would be even more key if adding in agentic steps
+ - Single postgres instance for everything simplifies the infra and deployment significantly
+ - The LLM client is configurable meaning we can swap it for other providers easily, or use AWS Bedrock or local models for privacy
+ - Single centralised config ensures that all tunable hyperparameters are available
+ - Two tier evaluation means that non-technical users can use promptfoo to understand and broadly understand and detect regressions, and the development team can use the detailed eval to drill into specific failure cases
+ - Pydantic is used to be type safe everywhere
 
 # Engineering standards
 ## Followed:
