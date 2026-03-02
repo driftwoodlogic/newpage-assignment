@@ -177,10 +177,51 @@ def build_ragas_dataset(rows: list[dict[str, Any]]) -> Dataset:
     )
 
 
-def run_ragas(ragas_rows: list[dict[str, Any]]) -> dict[str, float]:
+def _ragas_row_stats(ragas_rows: list[dict[str, Any]]) -> dict[str, int]:
+    total = len(ragas_rows)
+    with_answer = sum(1 for r in ragas_rows if str(r.get("answer") or "").strip())
+    with_contexts = sum(
+        1
+        for r in ragas_rows
+        if isinstance(r.get("contexts"), list) and any(
+            isinstance(c, str) and c.strip() for c in r.get("contexts", [])
+        )
+    )
+    with_ground_truth = sum(1 for r in ragas_rows if str(r.get("ground_truth") or "").strip())
+    return {
+        "total": total,
+        "with_answer": with_answer,
+        "with_contexts": with_contexts,
+        "with_ground_truth": with_ground_truth,
+    }
+
+
+def _batch_ragas_rows(
+    rows: list[dict[str, Any]], batch_size: int
+) -> list[list[dict[str, Any]]]:
+    if batch_size <= 0:
+        return [rows]
+    return [rows[i : i + batch_size] for i in range(0, len(rows), batch_size)]
+
+
+def run_ragas(ragas_rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, float]:
+    stats = _ragas_row_stats(ragas_rows)
+    print(
+        "RAGAS: rows={total} answer={with_answer} contexts={with_contexts} ground_truth={with_ground_truth}".format(
+            **stats
+        )
+    )
+    print(
+        "RAGAS: starting evaluate "
+        f"(timeout={args.ragas_timeout}s, retries={args.ragas_retries}, "
+        f"batch_size={args.ragas_batch_size})"
+    )
+
     client = OpenAI(
         api_key=settings.openai_api_key,
         base_url=getattr(settings, "openai_base_url", None),
+        timeout=args.ragas_timeout,
+        max_retries=args.ragas_retries,
     )
 
     llm = llm_factory(settings.llm_model, client=client)
@@ -191,14 +232,52 @@ def run_ragas(ragas_rows: list[dict[str, Any]]) -> dict[str, float]:
         context_recall,
     ]
 
-    ds = build_ragas_dataset(ragas_rows)
+    batches = _batch_ragas_rows(ragas_rows, args.ragas_batch_size)
+    metrics_acc: dict[str, float] = {"faithfulness": 0.0, "context_precision": 0.0, "context_recall": 0.0}
+    total_rows = 0
 
-    result = evaluate(ds, metrics=metrics, llm=llm)
+    start = time.perf_counter()
+    for idx, batch in enumerate(batches, start=1):
+        if not batch:
+            continue
+        ds = build_ragas_dataset(batch)
+        last_exc: Exception | None = None
+        for attempt in range(args.ragas_retries + 1):
+            try:
+                result = evaluate(ds, metrics=metrics, llm=llm)
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= args.ragas_retries:
+                    raise
+                sleep_for = min(10.0, 2.0 * (attempt + 1))
+                print(
+                    f"RAGAS: batch {idx}/{len(batches)} failed "
+                    f"(attempt {attempt + 1}/{args.ragas_retries + 1}) "
+                    f"with {exc.__class__.__name__}: {exc}. Retrying in {sleep_for:.1f}s..."
+                )
+                time.sleep(sleep_for)
+        if last_exc and "result" not in locals():
+            raise last_exc
+
+        batch_size = len(batch)
+        total_rows += batch_size
+        metrics_acc["faithfulness"] += _agg(result["faithfulness"]) * batch_size
+        metrics_acc["context_precision"] += _agg(result["context_precision"]) * batch_size
+        metrics_acc["context_recall"] += _agg(result["context_recall"]) * batch_size
+
+        print(f"RAGAS: batch {idx}/{len(batches)} completed ({batch_size} rows)")
+
+    elapsed = time.perf_counter() - start
+    print(f"RAGAS: completed in {elapsed:.1f}s")
+
+    if total_rows == 0:
+        return {"faithfulness": float("nan"), "context_precision": float("nan"), "context_recall": float("nan")}
 
     return {
-        "faithfulness": round(_agg(result["faithfulness"]), 4),
-        "context_precision": round(_agg(result["context_precision"]), 4),
-        "context_recall": round(_agg(result["context_recall"]), 4),
+        "faithfulness": round(metrics_acc["faithfulness"] / total_rows, 4),
+        "context_precision": round(metrics_acc["context_precision"] / total_rows, 4),
+        "context_recall": round(metrics_acc["context_recall"] / total_rows, 4),
     }
 
 
@@ -274,6 +353,9 @@ def main() -> int:
     parser.add_argument("--backoff", type=float, default=2.0)
     parser.add_argument("--sleep", type=float, default=0.05)
     parser.add_argument("--test-n", type=int, default=5, help="Preflight test set size")
+    parser.add_argument("--ragas-timeout", type=float, default=120.0)
+    parser.add_argument("--ragas-retries", type=int, default=3)
+    parser.add_argument("--ragas-batch-size", type=int, default=5)
     args = parser.parse_args()
 
     questions = read_jsonl(Path(args.questions))
@@ -289,14 +371,14 @@ def main() -> int:
             questions[: args.test_n], args
         )
 
-        _ = run_ragas(test_ragas_rows)
+        _ = run_ragas(test_ragas_rows, args)
 
         print("\nPreflight test succeeded — running full dataset.\n")
 
     # ------------------ Full Run ------------------
 
     results, ragas_rows = run_eval_pass(questions, args)
-    ragas_metrics = run_ragas(ragas_rows)
+    ragas_metrics = run_ragas(ragas_rows, args)
 
     precision_avg = safe_mean(r["precision"] for r in results)
     recall_avg = safe_mean(r["recall"] for r in results)
