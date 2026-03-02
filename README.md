@@ -114,6 +114,7 @@ Skipped:
  - README done by hand
 
 # Given more time
+ - Actually build the web frontend rather than just the observability pipeline
  - I'd investigate agentic development for this use case - the biggest unknown
  - Putting this into production would obviously be looking at a lot more docs so tighten up evaluation based on our use case (what we're trying to achieve) and content of our docs
 ## Future Work
